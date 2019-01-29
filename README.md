@@ -233,6 +233,7 @@ $products = Product::select('ID')->getList();
 результат будет аналогичен.
 3. При создании или изменении элементов и разделов инфоблоков Битрикс перестраивает поисковый индекс и позволяет пропустить это перестаривание для конкретного вызова `Add/Update` для увеличения производиельности.
 В моделях вы можете добиться того же эффекта либо сразу одним махом установив непосредственно в классе-модели `protected static $updateSearch = false;`, либо уже непосредственно перед добавлением/обновлением вызвав отдельный статический метод `Product::setUpdateSearch(false)`.
+4. Флагами $bWorkFlow и $bResizePictures для CIBlockElement::Add/Update можно управлять аналогичным образом.
 
 ### Query Scopes
 
@@ -350,6 +351,35 @@ $users = Product::fromSectionWithCode('sale')->getList();
 Для того чтобы такие виртуальные аксессоры отображались в toArray() и toJson(), их необходимо явно указать в поле $appends модели.
 ```php
     protected $appends = ['FULL_NAME'];
+```
+
+#### Языковые аксессоры
+
+Для многоязычных сайтов типичным является подход, когда для каждого языка создается своё свойство, например, UF_TITLE_RU, UF_TITLE_BY
+В этом случае для каждого такого поля можно создать аксессор:
+```
+// используем далее $section['UF_TITLE'];
+public function getUfTitleAttribute()
+{
+    return $this['UF_TITLE_' . strtoupper(LANGUAGE_ID)];
+}
+
+// используем далее $element['PROPERTY_TITLE'];
+public function getPropertyTitleAttribute()
+{
+    return $this['PROPERTY_TITLE_' . strtoupper(LANGUAGE_ID) . '_VALUE'];
+}
+```
+Так как эти аксессоры однотипны и имеют неприятную особенность засорять модели, то для них можно использовать специальный краткий синтаксис
+
+```
+class Product extends ElementModel
+{
+    protected $languageAccessors = [
+        'PROPERTY_TITLE',
+        'PROPERTY_FOO'
+    ];
+}
 ```
 
 ### События моделей (Model Events)

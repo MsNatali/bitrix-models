@@ -13,6 +13,7 @@ class ElementModelTest extends TestCase
     public function setUp()
     {
         TestElement::$bxObject = m::mock('obj');
+        TestElement::setCurrentLanguage('RU');
         ElementQuery::$cIblockObject = m::mock('cIblockObject');
     }
 
@@ -66,7 +67,7 @@ class ElementModelTest extends TestCase
     public function testActivate()
     {
         $bxObject = m::mock('obj');
-        $bxObject->shouldReceive('update')->with(1, ['ACTIVE' => 'Y'], false, true)->once()->andReturn(true);
+        $bxObject->shouldReceive('update')->with(1, ['ACTIVE' => 'Y'], false, true, false)->once()->andReturn(true);
 
         TestElement::$bxObject = $bxObject;
         $element = new TestElement(1);
@@ -77,7 +78,7 @@ class ElementModelTest extends TestCase
     public function testDeactivate()
     {
         $bxObject = m::mock('obj');
-        $bxObject->shouldReceive('update')->with(1, ['ACTIVE' => 'N'], false, true)->once()->andReturn(true);
+        $bxObject->shouldReceive('update')->with(1, ['ACTIVE' => 'N'], false, true, false)->once()->andReturn(true);
 
         TestElement::$bxObject = $bxObject;
         $element = new TestElement(1);
@@ -244,10 +245,11 @@ class ElementModelTest extends TestCase
         $element = m::mock('Arrilot\Tests\BitrixModels\Stubs\TestElement[get,onBeforeSave,onAfterSave,onBeforeUpdate,onAfterUpdate]', [1])
             ->shouldAllowMockingProtectedMethods();
 
-        $element->shouldReceive('onBeforeSave')->times(4)->andReturn(true);
-        $element->shouldReceive('onAfterSave')->times(4);
-        $element->shouldReceive('onBeforeUpdate')->times(4)->andReturn(true);
-        $element->shouldReceive('onAfterUpdate')->times(4);
+        $assertsCount = 9;
+        $element->shouldReceive('onBeforeSave')->times($assertsCount)->andReturn(true);
+        $element->shouldReceive('onAfterSave')->times($assertsCount);
+        $element->shouldReceive('onBeforeUpdate')->times($assertsCount)->andReturn(true);
+        $element->shouldReceive('onAfterUpdate')->times($assertsCount);
 
         $fields = [
             'ID'                        => 1,
@@ -258,35 +260,74 @@ class ElementModelTest extends TestCase
             'PROPERTY_FOO_DESCRIPTION'  => 'baz',
             '~PROPERTY_FOO_DESCRIPTION' => '~baz',
             'PROPERTY_FOO_VALUE_ID'     => 'bar_id',
+            'PROPERTY_TEST_LIST_ENUM_ID' => '1',
+            'PROPERTY_TEST_LIST_VALUE' => 'Test value of list',
+            'PROPERTY_TEST_LIST_VALUE_ID' => '28:72',
         ];
         $element->shouldReceive('get')->andReturn($fields);
         $element->fill($fields);
 
         // 1
-        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, true)->once()->andReturn(true);
+        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, true, false)->once()->andReturn(true);
         $this->assertTrue($element->save(['NAME']));
 
         // 2
         $bxObject->shouldReceive('setPropertyValues')
-            ->with(1, TestElement::iblockId(), ['FOO' => 'bar'])
+            ->with(1, TestElement::iblockId(), [
+                'FOO' => ['VALUE' => 'bar', 'DESCRIPTION' => 'baz'],
+                'TEST_LIST' => '1',
+            ])
             ->once()
             ->andReturn(true);
 
-        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, true)->once()->andReturn(true);
+        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, true, false)->once()->andReturn(true);
         $this->assertTrue($element->save());
 
         // 3
         $bxObject->shouldReceive('setPropertyValuesEx')
-            ->with(1, TestElement::iblockId(), ['FOO' => 'bar'])
+            ->with(1, TestElement::iblockId(), ['FOO' => ['VALUE' => 'bar', 'DESCRIPTION' => 'baz']])
             ->once()
             ->andReturn(true);
         $this->assertTrue($element->save(['PROPERTY_FOO_VALUE']));
 
         // 4
+        $bxObject->shouldReceive('setPropertyValuesEx')
+            ->with(1, TestElement::iblockId(), ['FOO' => ['VALUE' => 'bar', 'DESCRIPTION' => 'baz']])
+            ->once()
+            ->andReturn(true);
+        $this->assertTrue($element->save(['PROPERTY_FOO_DESCRIPTION']));
+
+        // 5
+        $bxObject->shouldReceive('setPropertyValuesEx')
+            ->with(1, TestElement::iblockId(), ['FOO' => ['VALUE' => 'bar', 'DESCRIPTION' => 'baz']])
+            ->once()
+            ->andReturn(true);
+        $this->assertTrue($element->save(['PROPERTY_FOO_VALUE', 'PROPERTY_FOO_DESCRIPTION']));
+
+        // 6
+        TestElement::setWorkflow(true);
+        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], true, true, false)->once()->andReturn(true);
+        $this->assertTrue($element->save(['NAME']));
+        TestElement::setWorkflow(false);
+
+        // 7
         TestElement::setUpdateSearch(false);
-        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, false)->once()->andReturn(true);
+        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, false, false)->once()->andReturn(true);
         $this->assertTrue($element->save(['NAME']));
         TestElement::setUpdateSearch(true);
+
+        // 8
+        TestElement::setResizePictures(true);
+        $bxObject->shouldReceive('update')->with(1, ['NAME' => 'John Doe'], false, true, true)->once()->andReturn(true);
+        $this->assertTrue($element->save(['NAME']));
+        TestElement::setResizePictures(false);
+
+        // 9
+        $bxObject->shouldReceive('setPropertyValuesEx')
+            ->with(1, TestElement::iblockId(), ['TEST_LIST' => "1"])
+            ->once()
+            ->andReturn(true);
+        $this->assertTrue($element->save(['PROPERTY_TEST_LIST_ENUM_ID']));
     }
 
     public function testUpdate()
@@ -303,7 +344,7 @@ class ElementModelTest extends TestCase
     public function testCreate()
     {
         $bxObject = m::mock('obj');
-        $bxObject->shouldReceive('add')->with(['NAME' => 'John Doe', 'IBLOCK_ID' => TestElement::iblockId()], false, true)->once()->andReturn(2);
+        $bxObject->shouldReceive('add')->with(['NAME' => 'John Doe', 'IBLOCK_ID' => TestElement::iblockId()], false, true, false)->once()->andReturn(2);
 
         TestElement::$bxObject = $bxObject;
 
@@ -332,16 +373,30 @@ class ElementModelTest extends TestCase
 
     public function testToArray()
     {
-        $element = new TestElement(1, ['ID' => 1, 'NAME' => 'John Doe']);
+        $element = new TestElement(1, ['ID' => 1, 'NAME' => 'John Doe', 'PROPERTY_LANG_ACCESSOR_ONE_RU_VALUE' => 'la_ru']);
 
-        $this->assertSame(['ID' => 1, 'NAME' => 'John Doe', 'ACCESSOR_THREE' => []], $element->toArray());
+        $expected = [
+            'ID' => 1,
+            'NAME' => 'John Doe',
+            'ACCESSOR_THREE' => [],
+            'PROPERTY_LANG_ACCESSOR_ONE_RU_VALUE' => 'la_ru',
+            'PROPERTY_LANG_ACCESSOR_ONE' => 'la_ru'
+        ];
+        $this->assertEquals($expected, $element->toArray());
     }
 
     public function testToJson()
     {
-        $element = new TestElement(1, ['ID' => 1, 'NAME' => 'John Doe']);
+        $element = new TestElement(1, ['ID' => 1, 'NAME' => 'John Doe', 'PROPERTY_LANG_ACCESSOR_ONE_RU_VALUE' => 'la_ru',]);
 
-        $this->assertSame(json_encode(['ID' => 1, 'NAME' => 'John Doe', 'ACCESSOR_THREE' => []]), $element->toJson());
+        $expected = [
+            'ID' => 1,
+            'NAME' => 'John Doe',
+            'PROPERTY_LANG_ACCESSOR_ONE_RU_VALUE' => 'la_ru',
+            'ACCESSOR_THREE' => [],
+            'PROPERTY_LANG_ACCESSOR_ONE' => 'la_ru'
+        ];
+        $this->assertEquals(json_encode($expected), $element->toJson());
     }
 
     public function testFill()
@@ -389,7 +444,7 @@ class ElementModelTest extends TestCase
     public function testAccessors()
     {
         $element = new TestElement(1);
-        $element->fill(['ID' => 2, 'NAME' => 'John', 'ACCESSOR_ONE' => 'foo']);
+        $element->fill(['ID' => 2, 'NAME' => 'John', 'ACCESSOR_ONE' => 'foo', 'PROPERTY_LANG_ACCESSOR_ONE_RU_VALUE' => 'la_ru']);
 
         $this->assertSame('!foo!', $element['ACCESSOR_ONE']);
         $this->assertTrue(isset($element['ACCESSOR_ONE']));
@@ -400,6 +455,8 @@ class ElementModelTest extends TestCase
         $this->assertSame([], $element['ACCESSOR_THREE']);
         $this->assertTrue(isset($element['ACCESSOR_THREE']));
         $this->assertFalse(!empty($element['ACCESSOR_THREE']));
+        $this->assertTrue(isset($element['PROPERTY_LANG_ACCESSOR_ONE']));
+        $this->assertSame('la_ru', $element['PROPERTY_LANG_ACCESSOR_ONE']);
     }
     
     public function testItPlaysNiceWithOtherBitrixModels()

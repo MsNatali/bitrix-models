@@ -80,11 +80,25 @@ class ElementModel extends BitrixModel
     protected $sectionsAreFetched = false;
 
     /**
-     * Update search after each create or update.
+     * Log in Bitrix workflow ($bWorkFlow for CIBlockElement::Add/Update).
+     *
+     * @var bool
+     */
+    protected static $workFlow = false;
+
+    /**
+     * Update search after each create or update ($bUpdateSearch for CIBlockElement::Add/Update).
      *
      * @var bool
      */
     protected static $updateSearch = true;
+
+    /**
+     * Resize pictures during add/update ($bResizePictures for CIBlockElement::Add/Update).
+     *
+     * @var bool
+     */
+    protected static $resizePictures = false;
 
     /**
      * Getter for corresponding iblock id.
@@ -102,7 +116,7 @@ class ElementModel extends BitrixModel
         
         return $id;
     }
-
+    
     /**
      * Create new item in database.
      *
@@ -111,6 +125,7 @@ class ElementModel extends BitrixModel
      * @throws LogicException
      *
      * @return static|bool
+     * @throws ExceptionFromBitrix
      */
     public static function create($fields)
     {
@@ -123,7 +138,7 @@ class ElementModel extends BitrixModel
 
     public static function internalDirectCreate($bxObject, $fields)
     {
-        return $bxObject->add($fields, false, static::$updateSearch);
+        return $bxObject->add($fields, static::$workFlow, static::$updateSearch, static::$resizePictures);
     }
 
     /**
@@ -404,13 +419,66 @@ class ElementModel extends BitrixModel
     {
         $propertyValues = [];
         $saveOnlySelected = !empty($selectedFields);
+
+        if ($saveOnlySelected) {
+            foreach ($selectedFields as $code) {
+                // if we pass PROPERTY_X_DESCRIPTION as selected field, we need to add PROPERTY_X_VALUE as well.
+                if (preg_match('/^PROPERTY_(.*)_DESCRIPTION$/', $code, $matches) && !empty($matches[1])) {
+                    $propertyCode = $matches[1];
+                    $propertyValueKey = "PROPERTY_{$propertyCode}_VALUE";
+                    if (!in_array($propertyValueKey, $selectedFields)) {
+                        $selectedFields[] = $propertyValueKey;
+                    }
+                }
+
+                // if we pass PROPERTY_X_ENUM_ID as selected field, we need to add PROPERTY_X_VALUE as well.
+                if (preg_match('/^PROPERTY_(.*)_ENUM_ID$/', $code, $matches) && !empty($matches[1])) {
+                    $propertyCode = $matches[1];
+                    $propertyValueKey = "PROPERTY_{$propertyCode}_VALUE";
+                    if (!in_array($propertyValueKey, $selectedFields)) {
+                        $selectedFields[] = $propertyValueKey;
+                    }
+                }
+            }
+        }
+
         foreach ($this->fields as $code => $value) {
             if ($saveOnlySelected && !in_array($code, $selectedFields)) {
                 continue;
             }
 
             if (preg_match('/^PROPERTY_(.*)_VALUE$/', $code, $matches) && !empty($matches[1])) {
-                $propertyValues[$matches[1]] = $value;
+                $propertyCode = $matches[1];
+    
+                // if property type is a list we need to use enum ID/IDs as value/values
+                if (array_key_exists("PROPERTY_{$propertyCode}_ENUM_ID", $this->fields)) {
+                    $value = $this->fields["PROPERTY_{$propertyCode}_ENUM_ID"];
+                } else {
+                    // if we suspect multiple list and PROPERTY_{$propertyCode}_ENUM_ID is not explicitly set.
+                    if (is_array($value) && (count($value) == 0 || array_keys($value)[0] != 0)) {
+                        $propertyData = CIBlock::GetProperties(static::iblockId(), [], ["CODE" => $propertyCode, "PROPERTY_TYPE" => "L", "MULTIPLE" => "Y"])->Fetch();
+                        if ($propertyData) {
+                            $value = array_keys($value);
+                        }
+                    }
+                }
+
+                // if property values have descriptions
+                if (array_key_exists("PROPERTY_{$propertyCode}_DESCRIPTION", $this->fields)) {
+                    $description = $this->fields["PROPERTY_{$propertyCode}_DESCRIPTION"];
+
+                    if (is_array($value) && is_array($description)) {
+                        // for multiple property
+                        foreach ($value as $rowIndex => $rowValue) {
+                            $propertyValues[$propertyCode][] = ['VALUE' => $rowValue, 'DESCRIPTION' => $description[$rowIndex]];
+                        }
+                    } else {
+                        // for single property
+                        $propertyValues[$propertyCode] = ['VALUE' => $value, 'DESCRIPTION' => $description];
+                    }
+                } else {
+                    $propertyValues[$propertyCode] = $value;
+                }
             }
         }
 
@@ -455,11 +523,32 @@ class ElementModel extends BitrixModel
             }
         }
 
-        $result = !empty($fields) ? static::$bxObject->update($this->id, $fields, false, static::$updateSearch) : false;
+        $result = !empty($fields) ? static::$bxObject->update($this->id, $fields, static::$workFlow, static::$updateSearch, static::$resizePictures) : false;
         $savePropsResult = $this->saveProps($fieldsSelectedForSave);
         $result = $result || $savePropsResult;
 
         return $result;
+    }
+
+    /**
+     * Get value from language field according to current language.
+     *
+     * @param $field
+     * @return mixed
+     */
+    protected function getValueFromLanguageField($field)
+    {
+        $key = $field . '_' . $this->getCurrentLanguage() . '_VALUE';
+
+        return isset($this->fields[$key]) ? $this->fields[$key] : null;
+    }
+
+    /**
+     * @param $value
+     */
+    public static function setWorkflow($value)
+    {
+        static::$workFlow = $value;
     }
 
     /**
@@ -468,5 +557,13 @@ class ElementModel extends BitrixModel
     public static function setUpdateSearch($value)
     {
         static::$updateSearch = $value;
+    }
+
+    /**
+     * @param $value
+     */
+    public static function setResizePictures($value)
+    {
+        static::$resizePictures = $value;
     }
 }
